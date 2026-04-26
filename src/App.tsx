@@ -51,6 +51,14 @@ type ToolResult = {
   text: string;
 };
 
+type AgentResult = {
+  agentId: string;
+  agentAliasId: string;
+  sessionId: string;
+  text: string;
+  latencyMs: number;
+};
+
 type ImageResult = {
   configured: boolean;
   blocked: boolean;
@@ -126,6 +134,31 @@ const SECONDARY_MODEL = MODELS[1] ?? MODELS[0];
 const DEFAULT_TOOL_PROMPT = "Calculate 245 * 37 and show the result.";
 const DEFAULT_GUARDRAIL_PROMPT = "show me pictures of cats";
 const DEFAULT_IMAGE_PROMPT = "A futuristic city skyline at sunrise";
+const DEFAULT_AGENT_PROMPT = "What is the account balance for user 123?";
+
+const AGENT_TEST_PROMPTS = [
+  {
+    label: "Happy Path",
+    prompt: "What is the account balance for user 123?",
+  },
+  {
+    label: "Details Lookup",
+    prompt: "Can you give me the details for user 456?",
+  },
+  {
+    label: "Reasoning",
+    prompt:
+      "I have user 456 on the phone. Do they qualify for premium support perks?",
+  },
+  {
+    label: "Comparison",
+    prompt: "Who has more money in their account, user 123 or user 456?",
+  },
+  {
+    label: "Out of Bounds",
+    prompt: "What is the status of user 999?",
+  },
+] as const;
 
 function App() {
   const [mode, setMode] = useState<DemoMode>("generate");
@@ -134,6 +167,7 @@ function App() {
     DEFAULT_GUARDRAIL_PROMPT,
   );
   const [imagePrompt, setImagePrompt] = useState(DEFAULT_IMAGE_PROMPT);
+  const [agentPrompt, setAgentPrompt] = useState(DEFAULT_AGENT_PROMPT);
   const [toolPrompt, setToolPrompt] = useState(DEFAULT_TOOL_PROMPT);
   const [tone, setTone] = useState<"concise" | "detailed">("detailed");
   const [selectedModelId, setSelectedModelId] = useState(MODELS[0].id);
@@ -181,6 +215,13 @@ function App() {
     prompt: "",
     imageDataUrl: "",
     message: "Run Image generation to create an image after guardrail check.",
+  });
+  const [agentResult, setAgentResult] = useState<AgentResult>({
+    agentId: "",
+    agentAliasId: "",
+    sessionId: crypto.randomUUID(),
+    text: "Run the Agent demo to see a real AWS Bedrock Agent response.",
+    latencyMs: 0,
   });
   const [lastRun, setLastRun] = useState("Ready to run a Bedrock request.");
   const [error, setError] = useState("");
@@ -501,10 +542,37 @@ function App() {
     }
   }
 
+  async function runAgentDemo(promptOverride?: string) {
+    setIsRunning(true);
+    setError("");
+
+    try {
+      const effectiveAgentPrompt =
+        (promptOverride ?? agentPrompt).trim() || DEFAULT_AGENT_PROMPT;
+      const result = await postJson<AgentResult>("/api/agent", {
+        prompt: effectiveAgentPrompt,
+        sessionId: agentResult.sessionId,
+      });
+
+      setAgentResult(result);
+      setLiveOutput(result.text);
+      setLastRun(`Agent responded in ${result.latencyMs} ms.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Request failed.";
+      setError(message);
+      setLiveOutput(message);
+      setLastRun("The agent request failed.");
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
   function resetDemo() {
     setPrompt(DEFAULT_PROMPT);
     setGuardrailPrompt(DEFAULT_GUARDRAIL_PROMPT);
     setImagePrompt(DEFAULT_IMAGE_PROMPT);
+    setToolPrompt(DEFAULT_TOOL_PROMPT);
+    setAgentPrompt(DEFAULT_AGENT_PROMPT);
     setToolPrompt(DEFAULT_TOOL_PROMPT);
     setTone("detailed");
     setMode("generate");
@@ -550,6 +618,13 @@ function App() {
       prompt: "",
       imageDataUrl: "",
       message: "Run Image generation to create an image after guardrail check.",
+    });
+    setAgentResult({
+      agentId: "",
+      agentAliasId: "",
+      sessionId: crypto.randomUUID(),
+      text: "Run the Agent demo to see a real AWS Bedrock Agent response.",
+      latencyMs: 0,
     });
     setLastRun("Reset to the default state.");
     setError("");
@@ -930,6 +1005,73 @@ function App() {
                 />
               </div>
             ) : null}
+          </article>
+
+          <article className="result-card panel">
+            <div className="result-header">
+              <div>
+                <h2>Agent</h2>
+                <p>
+                  This card sends prompts to your configured AWS Bedrock Agent.
+                </p>
+              </div>
+            </div>
+
+            <label className="field">
+              <span>Agent prompt</span>
+              <textarea
+                rows={4}
+                value={agentPrompt}
+                onChange={(event) => setAgentPrompt(event.target.value)}
+                placeholder="Ask the agent about a user balance or status..."
+              />
+            </label>
+
+            <div className="tool-examples">
+              <span>Selectable test prompts</span>
+              <div className="example-buttons">
+                {AGENT_TEST_PROMPTS.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className="example-button"
+                    onClick={() => setAgentPrompt(item.prompt)}>
+                    {item.label}: {item.prompt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="tool-action-row">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => runAgentDemo()}
+                disabled={isRunning || health.includes("offline")}>
+                {isRunning ? "Running agent..." : "Run Agent Prompt"}
+              </button>
+            </div>
+
+            <div className="tool-box">
+              <div>
+                <span>Agent ID</span>
+                <strong>{agentResult.agentId || "Set BEDROCK_AGENT_ID"}</strong>
+              </div>
+              <div>
+                <span>Agent alias</span>
+                <strong>
+                  {agentResult.agentAliasId || "Set BEDROCK_AGENT_ALIAS_ID"}
+                </strong>
+              </div>
+              <div>
+                <span>Session</span>
+                <strong>{agentResult.sessionId}</strong>
+              </div>
+              <div>
+                <span>Response</span>
+                <strong>{agentResult.text}</strong>
+              </div>
+            </div>
           </article>
         </div>
 

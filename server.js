@@ -1,5 +1,6 @@
 import "dotenv/config";
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import {
   ApplyGuardrailCommand,
@@ -8,6 +9,10 @@ import {
   ConverseStreamCommand,
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import {
+  BedrockAgentRuntimeClient,
+  InvokeAgentCommand,
+} from "@aws-sdk/client-bedrock-agent-runtime";
 
 const PORT = Number(process.env.PORT || 8787);
 const REGION =
@@ -15,6 +20,8 @@ const REGION =
 const GUARDRAIL_ID = process.env.BEDROCK_GUARDRAIL_ID || "";
 const GUARDRAIL_VERSION =
   process.env.BEDROCK_GUARDRAIL_VERSION || (GUARDRAIL_ID ? "DRAFT" : "");
+const AGENT_ID = process.env.BEDROCK_AGENT_ID || "";
+const AGENT_ALIAS_ID = process.env.BEDROCK_AGENT_ALIAS_ID || "";
 const MAX_PROMPT_CHARS = Number(process.env.BUDGET_MAX_PROMPT_CHARS || 1200);
 const MAX_OUTPUT_TOKENS = Number(process.env.BUDGET_MAX_OUTPUT_TOKENS || 220);
 const MAX_REQUESTS_PER_MINUTE = Number(
@@ -33,6 +40,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const requestBuckets = new Map();
 
 const client = new BedrockRuntimeClient({ region: REGION });
+const agentClient = new BedrockAgentRuntimeClient({ region: REGION });
 
 const MODEL_LABELS = new Map([["amazon.nova-micro-v1:0", "Nova Micro"]]);
 const TOOL_DEFINITIONS = {
@@ -95,6 +103,10 @@ function isAllowedModel(modelId) {
 
 function modelName(modelId) {
   return MODEL_LABELS.get(modelId) ?? modelId;
+}
+
+function agentConfigured() {
+  return Boolean(AGENT_ID && AGENT_ALIAS_ID);
 }
 
 function jsonResponse(res, statusCode, body) {
@@ -184,11 +196,11 @@ function getAwsErrorMessage(error) {
   }
 
   if (name === "ValidationException") {
-    return "Bedrock rejected the request. Confirm the model ID is enabled in this region and your account has access.";
+    return "Bedrock rejected the request. Confirm the model, agent, or guardrail is enabled in this region and your account has access.";
   }
 
   if (name === "ResourceNotFoundException") {
-    return "The requested Bedrock resource was not found. Check the model ID, guardrail ID, and region.";
+    return "The requested Bedrock resource was not found. Check the model ID, agent ID, guardrail ID, and region.";
   }
 
   if (name === "ModelNotReadyException") {
@@ -225,6 +237,36 @@ function getAwsErrorStatus(error) {
   }
 
   return 500;
+}
+
+async function invokeAgent(prompt, sessionId) {
+  const start = performance.now();
+
+  const response = await agentClient.send(
+    new InvokeAgentCommand({
+      agentId: AGENT_ID,
+      agentAliasId: AGENT_ALIAS_ID,
+      sessionId,
+      inputText: prompt,
+      enableTrace: true,
+    }),
+  );
+
+  let text = "";
+  for await (const event of response.completion ?? []) {
+    const chunk = event?.chunk?.bytes;
+    if (chunk) {
+      text += new TextDecoder().decode(chunk);
+    }
+  }
+
+  return {
+    agentId: AGENT_ID,
+    agentAliasId: AGENT_ALIAS_ID,
+    sessionId,
+    text: text.trim() || "No response returned from the agent.",
+    latencyMs: Math.round(performance.now() - start),
+  };
 }
 
 async function hasCredentials() {
@@ -617,6 +659,7 @@ const server = http.createServer(async (req, res) => {
       region: REGION,
       guardrailConfigured: Boolean(GUARDRAIL_ID),
       guardrailVersion: GUARDRAIL_ID ? GUARDRAIL_VERSION : "",
+      agentConfigured: agentConfigured(),
       credentialsReady,
       budget: {
         maxPromptChars: MAX_PROMPT_CHARS,
@@ -717,6 +760,40 @@ const server = http.createServer(async (req, res) => {
       jsonResponse(res, getAwsErrorStatus(error), {
         message: getAwsErrorMessage(error),
         error: error?.name || error?.code || "BedrockError",
+      });
+    }
+    return;
+  }
+
+  if (req.method === "POST" && pathname === "/api/agent") {
+    try {
+      const body = await readJson(req);
+      if (!body.prompt) {
+        badRequest(res, "prompt is required");
+        return;
+      }
+      const promptError = getPromptBudgetError(body.prompt);
+      if (promptError) {
+        badRequest(res, promptError);
+        return;
+      }
+      if (!agentConfigured()) {
+        badRequest(
+          res,
+          "Set BEDROCK_AGENT_ID and BEDROCK_AGENT_ALIAS_ID to enable the agent demo.",
+        );
+        return;
+      }
+
+      const result = await invokeAgent(
+        body.prompt,
+        body.sessionId || randomUUID(),
+      );
+      jsonResponse(res, 200, result);
+    } catch (error) {
+      jsonResponse(res, getAwsErrorStatus(error), {
+        message: getAwsErrorMessage(error),
+        error: error?.name || error?.code || "BedrockAgentError",
       });
     }
     return;
