@@ -1,8 +1,27 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Activity,
+  Bot,
+  Gauge,
+  Image as ImageIcon,
+  Play,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 import heroImg from "./assets/hero.png";
 import "./App.css";
 
-type DemoMode = "generate" | "stream" | "compare" | "guardrails" | "tools";
+type DemoMode =
+  | "generate"
+  | "stream"
+  | "compare"
+  | "guardrails"
+  | "tools"
+  | "image"
+  | "agent";
 type ToolName = "calculate" | "getWeather" | "knowledgeLookup";
 
 type ModelOption = {
@@ -127,7 +146,34 @@ const DEMO_MODES: { id: DemoMode; title: string; description: string }[] = [
     title: "Tool use",
     description: "Let the model call a tool and use the result.",
   },
+  {
+    id: "image",
+    title: "Image",
+    description: "Generate an image after guardrail checks.",
+  },
+  {
+    id: "agent",
+    title: "Agent",
+    description: "Send prompts to your configured Bedrock Agent.",
+  },
 ];
+
+const MODE_META = {
+  generate: { icon: Sparkles },
+  stream: { icon: Activity },
+  compare: { icon: Gauge },
+  guardrails: { icon: ShieldCheck },
+  tools: { icon: Wrench },
+  image: { icon: ImageIcon },
+  agent: { icon: Bot },
+} as const;
+
+const CARD_TRANSITION = {
+  type: "spring",
+  stiffness: 260,
+  damping: 20,
+  mass: 0.6,
+} as const;
 
 const DEFAULT_PROMPT = "Summarize the value of AWS Bedrock for a retail app.";
 const SECONDARY_MODEL = MODELS[1] ?? MODELS[0];
@@ -163,6 +209,7 @@ const AGENT_TEST_PROMPTS = [
 function App() {
   const [mode, setMode] = useState<DemoMode>("generate");
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [comparePrompt, setComparePrompt] = useState(DEFAULT_PROMPT);
   const [guardrailPrompt, setGuardrailPrompt] = useState(
     DEFAULT_GUARDRAIL_PROMPT,
   );
@@ -411,7 +458,7 @@ function App() {
         const result = await postJson<{ a: CompareResult; b: CompareResult }>(
           "/api/compare",
           {
-            prompt,
+            prompt: comparePrompt,
             modelAId: compareModelAId,
             modelBId: compareModelBId,
             tone,
@@ -442,6 +489,39 @@ function App() {
       setError(message);
       setLiveOutput(message);
       setLastRun("The request failed.");
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+  async function runCompareDemo() {
+    if (mode !== "compare") {
+      setMode("compare");
+    }
+
+    setIsRunning(true);
+    setError("");
+
+    try {
+      const effectiveComparePrompt = comparePrompt.trim() || DEFAULT_PROMPT;
+      const result = await postJson<{ a: CompareResult; b: CompareResult }>(
+        "/api/compare",
+        {
+          prompt: effectiveComparePrompt,
+          modelAId: compareModelAId,
+          modelBId: compareModelBId,
+          tone,
+        },
+      );
+
+      setCompareResults([result.a, result.b]);
+      setLiveOutput(result.a.text);
+      setLastRun(`Compared ${result.a.modelName} and ${result.b.modelName}.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Request failed.";
+      setError(message);
+      setLiveOutput(message);
+      setLastRun("The compare request failed.");
     } finally {
       setIsRunning(false);
     }
@@ -516,6 +596,10 @@ function App() {
   }
 
   async function runImageDemo() {
+    if (mode !== "image") {
+      setMode("image");
+    }
+
     setIsRunning(true);
     setError("");
 
@@ -543,6 +627,10 @@ function App() {
   }
 
   async function runAgentDemo(promptOverride?: string) {
+    if (mode !== "agent") {
+      setMode("agent");
+    }
+
     setIsRunning(true);
     setError("");
 
@@ -569,11 +657,11 @@ function App() {
 
   function resetDemo() {
     setPrompt(DEFAULT_PROMPT);
+    setComparePrompt(DEFAULT_PROMPT);
     setGuardrailPrompt(DEFAULT_GUARDRAIL_PROMPT);
     setImagePrompt(DEFAULT_IMAGE_PROMPT);
     setToolPrompt(DEFAULT_TOOL_PROMPT);
     setAgentPrompt(DEFAULT_AGENT_PROMPT);
-    setToolPrompt(DEFAULT_TOOL_PROMPT);
     setTone("detailed");
     setMode("generate");
     setSelectedTool("calculate");
@@ -630,9 +718,26 @@ function App() {
     setError("");
   }
 
+  const runPrimaryLabel =
+    mode === "stream"
+      ? "Run Stream"
+      : mode === "tools"
+        ? "Run Tools"
+        : mode === "compare"
+          ? "Use Compare Card"
+          : mode === "image"
+            ? "Use Image Card"
+            : mode === "agent"
+              ? "Use Agent Card"
+              : "Run Bedrock";
+
   return (
     <main className="demo-page">
-      <section className="hero-panel">
+      <motion.section
+        className="hero-panel"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}>
         <div className="hero-copy">
           <p className="eyebrow">AWS Bedrock demo</p>
           <h1>Real Bedrock features in the app</h1>
@@ -662,7 +767,7 @@ function App() {
             <strong>{health.includes("offline") ? "Offline" : "Ready"}</strong>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       <section className="demo-shell">
         <div className="controls panel">
@@ -670,431 +775,613 @@ function App() {
           <p className="health-line">{health}</p>
 
           <div className="mode-grid">
-            {DEMO_MODES.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                className={item.id === mode ? "mode-card active" : "mode-card"}
-                onClick={() => setMode(item.id)}>
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
+            {DEMO_MODES.map((item) => {
+              const ModeIcon = MODE_META[item.id].icon;
+
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={
+                    item.id === mode ? "mode-card active" : "mode-card"
+                  }
+                  onClick={() => setMode(item.id)}>
+                  <div className="mode-card-title">
+                    <span className="mode-icon" aria-hidden="true">
+                      <ModeIcon size={15} strokeWidth={2.3} />
+                    </span>
+                    <strong>{item.title}</strong>
+                  </div>
+                  <span>{item.description}</span>
+                </button>
+              );
+            })}
           </div>
-
-          <label className="field">
-            <span>Prompt</span>
-            <textarea
-              rows={5}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Ask Bedrock something..."
-            />
-          </label>
-
-          <div className="field-row">
-            <label className="field">
-              <span>Model</span>
-              <select
-                value={selectedModelId}
-                onChange={(event) => setSelectedModelId(event.target.value)}>
-                {MODELS.map((model) => (
-                  <option value={model.id} key={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="field">
-              <span>Tone</span>
-              <select
-                value={tone}
-                onChange={(event) =>
-                  setTone(event.target.value as "concise" | "detailed")
-                }>
-                <option value="detailed">Detailed</option>
-                <option value="concise">Concise</option>
-              </select>
-            </label>
-          </div>
-
-          {mode === "compare" ? (
-            <div className="field-row compare-selectors">
-              <label className="field">
-                <span>Model A</span>
-                <select
-                  value={compareModelAId}
-                  onChange={(event) => setCompareModelAId(event.target.value)}>
-                  {MODELS.map((model) => (
-                    <option value={model.id} key={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span>Model B</span>
-                <select
-                  value={compareModelBId}
-                  onChange={(event) => setCompareModelBId(event.target.value)}>
-                  {MODELS.map((model) => (
-                    <option value={model.id} key={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ) : null}
 
           <div className="button-row">
             <button
               type="button"
-              className="primary-button"
-              onClick={runDemo}
-              disabled={isRunning || health.includes("offline")}>
-              {isRunning ? "Running..." : "Run Bedrock"}
-            </button>
-            <button
-              type="button"
               className="secondary-button"
               onClick={resetDemo}>
+              <RotateCcw size={15} className="cta-icon" aria-hidden="true" />
               Reset
             </button>
           </div>
 
-          {error ? <p className="error-line">{error}</p> : null}
+          <AnimatePresence>
+            {error ? (
+              <motion.p
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+                className="error-line">
+                {error}
+              </motion.p>
+            ) : null}
+          </AnimatePresence>
         </div>
 
         <div className="results-grid">
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Live output</h2>
-                <p>{lastRun}</p>
-              </div>
-              <span className="feature-tag">{selectedModel.name}</span>
-            </div>
-
-            <pre className="output-box">
-              {mode === "stream"
-                ? streamText || "Streaming will appear here..."
-                : liveOutput}
-            </pre>
-          </article>
-
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Model comparison</h2>
-                <p>Both requests go to AWS Bedrock.</p>
-              </div>
-            </div>
-
-            <div className="comparison-grid">
-              {compareResults.map((item, index) => (
-                <div
-                  className="comparison-card"
-                  key={`${item.modelId}-${index}`}>
-                  <strong>
-                    {item.modelName}
-                    {item.latencyMs ? ` · ${item.latencyMs} ms` : ""}
-                  </strong>
-                  <pre>{item.text}</pre>
+          {(mode === "generate" || mode === "stream") && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <Activity size={17} aria-hidden="true" />
+                    Live output
+                  </h2>
+                  <p>{lastRun}</p>
                 </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Guardrails</h2>
-                <p>
-                  {guardrailResult.configured
-                    ? guardrailResult.blocked
-                      ? "The guardrail blocked this prompt."
-                      : "The guardrail allowed this prompt."
-                    : "Guardrails are not configured yet."}
-                </p>
-              </div>
-            </div>
-
-            <label className="field">
-              <span>Guardrail prompt (separate input)</span>
-              <textarea
-                rows={4}
-                value={guardrailPrompt}
-                onChange={(event) => setGuardrailPrompt(event.target.value)}
-                placeholder="Write a prompt to test guardrail blocking..."
-              />
-            </label>
-
-            <div className="tool-action-row">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={runGuardrailDemo}
-                disabled={isRunning || health.includes("offline")}>
-                {isRunning && mode === "guardrails"
-                  ? "Running guardrail..."
-                  : "Run Guardrail Prompt"}
-              </button>
-            </div>
-
-            <div
-              className={
-                guardrailResult.blocked
-                  ? "guardrail-box blocked"
-                  : "guardrail-box safe"
-              }>
-              <strong>
-                {guardrailResult.configured
-                  ? guardrailResult.blocked
-                    ? "Content blocked"
-                    : "Content allowed"
-                  : "Not configured"}
-              </strong>
-              <p>{guardrailResult.message}</p>
-              {guardrailResult.actionReason ? (
-                <p>{guardrailResult.actionReason}</p>
-              ) : null}
-            </div>
-          </article>
-
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Tool use</h2>
-                <p>The model can call a tool and use the result.</p>
-              </div>
-            </div>
-
-            <div className="tool-use-grid">
-              <div className="tool-mode-box">
-                <label className="field tool-field">
-                  <span>Tool to demo</span>
-                  <select
-                    value={selectedTool}
-                    onChange={(event) =>
-                      setSelectedTool(event.target.value as ToolName)
+                <div className="header-tags">
+                  <span className="feature-tag">{selectedModel.name}</span>
+                  <span
+                    className={
+                      isRunning
+                        ? "status-chip running"
+                        : error
+                          ? "status-chip error"
+                          : "status-chip ready"
                     }>
-                    {TOOL_OPTIONS.map((tool) => (
-                      <option value={tool.id} key={tool.id}>
-                        {tool.label}
+                    {isRunning ? "Running" : error ? "Error" : "Ready"}
+                  </span>
+                </div>
+              </div>
+
+              <pre className="output-box">
+                {mode === "stream"
+                  ? streamText || "Streaming will appear here..."
+                  : liveOutput}
+              </pre>
+
+              <label className="field">
+                <span>Prompt</span>
+                <textarea
+                  rows={4}
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder="Ask Bedrock something..."
+                />
+              </label>
+
+              <div className="field-row">
+                <label className="field">
+                  <span>Model</span>
+                  <select
+                    value={selectedModelId}
+                    onChange={(event) =>
+                      setSelectedModelId(event.target.value)
+                    }>
+                    {MODELS.map((model) => (
+                      <option value={model.id} key={model.id}>
+                        {model.name}
                       </option>
                     ))}
                   </select>
                 </label>
 
-                <label className="field tool-field">
-                  <span>Tool prompt (separate input)</span>
-                  <textarea
-                    rows={4}
-                    value={toolPrompt}
-                    onChange={(event) => setToolPrompt(event.target.value)}
-                    placeholder="Write a prompt for the selected tool..."
-                  />
+                <label className="field">
+                  <span>Tone</span>
+                  <select
+                    value={tone}
+                    onChange={(event) =>
+                      setTone(event.target.value as "concise" | "detailed")
+                    }>
+                    <option value="detailed">Detailed</option>
+                    <option value="concise">Concise</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="tool-action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={runDemo}
+                  disabled={isRunning || health.includes("offline")}>
+                  <Play size={15} className="cta-icon" aria-hidden="true" />
+                  {isRunning ? "Running..." : runPrimaryLabel}
+                </button>
+              </div>
+            </motion.article>
+          )}
+
+          {mode === "compare" && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <Gauge size={17} aria-hidden="true" />
+                    Model comparison
+                  </h2>
+                  <p>Both requests go to AWS Bedrock.</p>
+                </div>
+                <span className="status-chip neutral">
+                  {compareResults.every((item) => item.latencyMs > 0)
+                    ? "Compared"
+                    : "Awaiting run"}
+                </span>
+              </div>
+
+              <div className="comparison-grid">
+                {compareResults.map((item, index) => (
+                  <div
+                    className="comparison-card"
+                    key={`${item.modelId}-${index}`}>
+                    <strong>
+                      {item.modelName}
+                      {item.latencyMs ? ` · ${item.latencyMs} ms` : ""}
+                    </strong>
+                    <pre>{item.text}</pre>
+                  </div>
+                ))}
+              </div>
+
+              <label className="field">
+                <span>Compare prompt</span>
+                <textarea
+                  rows={4}
+                  value={comparePrompt}
+                  onChange={(event) => setComparePrompt(event.target.value)}
+                  placeholder="Ask both models the same question..."
+                />
+              </label>
+
+              <div className="field-row compare-selectors">
+                <label className="field">
+                  <span>Model A</span>
+                  <select
+                    value={compareModelAId}
+                    onChange={(event) =>
+                      setCompareModelAId(event.target.value)
+                    }>
+                    {MODELS.map((model) => (
+                      <option value={model.id} key={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
 
-                <div className="tool-examples">
-                  <span>Example prompts for selected tool</span>
-                  <div className="example-buttons">
-                    {TOOL_EXAMPLE_PROMPTS[selectedTool].map((example) => (
-                      <button
-                        key={example}
-                        type="button"
-                        className="example-button"
-                        onClick={() => setToolPrompt(example)}>
-                        {example}
-                      </button>
+                <label className="field">
+                  <span>Model B</span>
+                  <select
+                    value={compareModelBId}
+                    onChange={(event) =>
+                      setCompareModelBId(event.target.value)
+                    }>
+                    {MODELS.map((model) => (
+                      <option value={model.id} key={model.id}>
+                        {model.name}
+                      </option>
                     ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="field-row">
+                <label className="field">
+                  <span>Tone</span>
+                  <select
+                    value={tone}
+                    onChange={(event) =>
+                      setTone(event.target.value as "concise" | "detailed")
+                    }>
+                    <option value="detailed">Detailed</option>
+                    <option value="concise">Concise</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="tool-action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={runCompareDemo}
+                  disabled={isRunning || health.includes("offline")}>
+                  <Gauge size={15} className="cta-icon" aria-hidden="true" />
+                  {isRunning && mode === "compare"
+                    ? "Running compare..."
+                    : "Run Compare"}
+                </button>
+              </div>
+            </motion.article>
+          )}
+
+          {mode === "guardrails" && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <ShieldCheck size={17} aria-hidden="true" />
+                    Guardrails
+                  </h2>
+                  <p>
+                    {guardrailResult.configured
+                      ? guardrailResult.blocked
+                        ? "The guardrail blocked this prompt."
+                        : "The guardrail allowed this prompt."
+                      : "Guardrails are not configured yet."}
+                  </p>
+                </div>
+                <span
+                  className={
+                    guardrailResult.configured
+                      ? guardrailResult.blocked
+                        ? "status-chip error"
+                        : "status-chip ready"
+                      : "status-chip neutral"
+                  }>
+                  {guardrailResult.configured
+                    ? guardrailResult.blocked
+                      ? "Blocked"
+                      : "Allowed"
+                    : "Not configured"}
+                </span>
+              </div>
+
+              <label className="field">
+                <span>Guardrail prompt (separate input)</span>
+                <textarea
+                  rows={4}
+                  value={guardrailPrompt}
+                  onChange={(event) => setGuardrailPrompt(event.target.value)}
+                  placeholder="Write a prompt to test guardrail blocking..."
+                />
+              </label>
+
+              <div className="tool-action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={runGuardrailDemo}
+                  disabled={isRunning || health.includes("offline")}>
+                  <ShieldCheck
+                    size={15}
+                    className="cta-icon"
+                    aria-hidden="true"
+                  />
+                  {isRunning && mode === "guardrails"
+                    ? "Running guardrail..."
+                    : "Run Guardrail Prompt"}
+                </button>
+              </div>
+
+              <div
+                className={
+                  guardrailResult.blocked
+                    ? "guardrail-box blocked"
+                    : "guardrail-box safe"
+                }>
+                <strong>
+                  {guardrailResult.configured
+                    ? guardrailResult.blocked
+                      ? "Content blocked"
+                      : "Content allowed"
+                    : "Not configured"}
+                </strong>
+                <p>{guardrailResult.message}</p>
+                {guardrailResult.actionReason ? (
+                  <p>{guardrailResult.actionReason}</p>
+                ) : null}
+              </div>
+            </motion.article>
+          )}
+
+          {mode === "tools" && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <Wrench size={17} aria-hidden="true" />
+                    Tool use
+                  </h2>
+                  <p>The model can call a tool and use the result.</p>
+                </div>
+                <span
+                  className={
+                    toolResult.usedTool
+                      ? "status-chip ready"
+                      : "status-chip neutral"
+                  }>
+                  {toolResult.usedTool
+                    ? `Used ${toolResult.tool}`
+                    : "No tool used"}
+                </span>
+              </div>
+
+              <div className="tool-use-grid">
+                <div className="tool-mode-box">
+                  <label className="field tool-field">
+                    <span>Tool to demo</span>
+                    <select
+                      value={selectedTool}
+                      onChange={(event) =>
+                        setSelectedTool(event.target.value as ToolName)
+                      }>
+                      {TOOL_OPTIONS.map((tool) => (
+                        <option value={tool.id} key={tool.id}>
+                          {tool.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="field tool-field">
+                    <span>Tool prompt (separate input)</span>
+                    <textarea
+                      rows={4}
+                      value={toolPrompt}
+                      onChange={(event) => setToolPrompt(event.target.value)}
+                      placeholder="Write a prompt for the selected tool..."
+                    />
+                  </label>
+
+                  <div className="tool-examples">
+                    <span>Example prompts for selected tool</span>
+                    <div className="example-buttons">
+                      {TOOL_EXAMPLE_PROMPTS[selectedTool].map((example) => (
+                        <button
+                          key={example}
+                          type="button"
+                          className="example-button"
+                          onClick={() => setToolPrompt(example)}>
+                          {example}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="tool-action-row">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={runToolDemo}
+                      disabled={isRunning || health.includes("offline")}>
+                      <Wrench
+                        size={15}
+                        className="cta-icon"
+                        aria-hidden="true"
+                      />
+                      {isRunning && mode === "tools"
+                        ? "Running tool..."
+                        : "Run Tool Prompt"}
+                    </button>
                   </div>
                 </div>
 
-                <div className="tool-action-row">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={runToolDemo}
-                    disabled={isRunning || health.includes("offline")}>
-                    {isRunning && mode === "tools"
-                      ? "Running tool..."
-                      : "Run Tool Prompt"}
-                  </button>
+                <div className="tool-box">
+                  <div>
+                    <span>Requested tool</span>
+                    <strong>{toolResult.requestedTool ?? selectedTool}</strong>
+                  </div>
+                  <div>
+                    <span>Tool</span>
+                    <strong>{toolResult.tool}</strong>
+                  </div>
+                  <div>
+                    <span>Input</span>
+                    <strong>{toolResult.input || "—"}</strong>
+                  </div>
+                  <div>
+                    <span>Output</span>
+                    <strong>{toolResult.output}</strong>
+                  </div>
                 </div>
+              </div>
+            </motion.article>
+          )}
+
+          {mode === "image" && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <ImageIcon size={17} aria-hidden="true" />
+                    Image generation
+                  </h2>
+                  <p>This route is guardrail-protected before image output.</p>
+                </div>
+                <span
+                  className={
+                    imageResult.blocked
+                      ? "status-chip error"
+                      : imageResult.imageDataUrl
+                        ? "status-chip ready"
+                        : "status-chip neutral"
+                  }>
+                  {imageResult.blocked
+                    ? "Blocked"
+                    : imageResult.imageDataUrl
+                      ? "Generated"
+                      : "Awaiting run"}
+                </span>
+              </div>
+
+              <label className="field">
+                <span>Image prompt (separate input)</span>
+                <textarea
+                  rows={4}
+                  value={imagePrompt}
+                  onChange={(event) => setImagePrompt(event.target.value)}
+                  placeholder="Describe the image you want..."
+                />
+              </label>
+
+              <div className="tool-action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={runImageDemo}
+                  disabled={isRunning || health.includes("offline")}>
+                  <ImageIcon
+                    size={15}
+                    className="cta-icon"
+                    aria-hidden="true"
+                  />
+                  {isRunning ? "Generating image..." : "Run Image Prompt"}
+                </button>
+              </div>
+
+              <div
+                className={
+                  imageResult.blocked
+                    ? "guardrail-box blocked"
+                    : "guardrail-box safe"
+                }>
+                <strong>
+                  {imageResult.blocked
+                    ? "Image blocked"
+                    : imageResult.imageDataUrl
+                      ? "Image generated"
+                      : "Awaiting request"}
+                </strong>
+                <p>{imageResult.message}</p>
+                {imageResult.prompt ? (
+                  <p>Prompt: {imageResult.prompt}</p>
+                ) : null}
+                {imageResult.actionReason ? (
+                  <p>{imageResult.actionReason}</p>
+                ) : null}
+              </div>
+
+              {imageResult.imageDataUrl ? (
+                <div className="image-preview-wrap">
+                  <img
+                    src={imageResult.imageDataUrl}
+                    alt="Generated from image prompt"
+                    className="image-preview"
+                  />
+                </div>
+              ) : null}
+            </motion.article>
+          )}
+
+          {mode === "agent" && (
+            <motion.article
+              className="result-card panel"
+              whileHover={{ y: -2 }}
+              transition={CARD_TRANSITION}>
+              <div className="result-header">
+                <div>
+                  <h2 className="result-title">
+                    <Bot size={17} aria-hidden="true" />
+                    Agent
+                  </h2>
+                  <p>
+                    This card sends prompts to your configured AWS Bedrock
+                    Agent.
+                  </p>
+                </div>
+                <span className="status-chip neutral">
+                  {agentResult.latencyMs > 0
+                    ? `${agentResult.latencyMs} ms`
+                    : "Awaiting run"}
+                </span>
+              </div>
+
+              <label className="field">
+                <span>Agent prompt</span>
+                <textarea
+                  rows={4}
+                  value={agentPrompt}
+                  onChange={(event) => setAgentPrompt(event.target.value)}
+                  placeholder="Ask the agent about a user balance or status..."
+                />
+              </label>
+
+              <div className="tool-examples">
+                <span>Selectable test prompts</span>
+                <div className="example-buttons">
+                  {AGENT_TEST_PROMPTS.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className="example-button"
+                      onClick={() => {
+                        setAgentPrompt(item.prompt);
+                      }}>
+                      <Sparkles
+                        size={13}
+                        className="cta-icon"
+                        aria-hidden="true"
+                      />
+                      {item.label}: {item.prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="tool-action-row">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => runAgentDemo()}
+                  disabled={isRunning || health.includes("offline")}>
+                  <Bot size={15} className="cta-icon" aria-hidden="true" />
+                  {isRunning ? "Running agent..." : "Run Agent Prompt"}
+                </button>
               </div>
 
               <div className="tool-box">
                 <div>
-                  <span>Requested tool</span>
-                  <strong>{toolResult.requestedTool ?? selectedTool}</strong>
+                  <span>Agent ID</span>
+                  <strong>
+                    {agentResult.agentId || "Set BEDROCK_AGENT_ID"}
+                  </strong>
                 </div>
                 <div>
-                  <span>Tool</span>
-                  <strong>{toolResult.tool}</strong>
+                  <span>Agent alias</span>
+                  <strong>
+                    {agentResult.agentAliasId || "Set BEDROCK_AGENT_ALIAS_ID"}
+                  </strong>
                 </div>
                 <div>
-                  <span>Input</span>
-                  <strong>{toolResult.input || "—"}</strong>
+                  <span>Session</span>
+                  <strong>{agentResult.sessionId}</strong>
                 </div>
                 <div>
-                  <span>Output</span>
-                  <strong>{toolResult.output}</strong>
+                  <span>Response</span>
+                  <strong>{agentResult.text}</strong>
                 </div>
               </div>
-            </div>
-          </article>
-
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Image generation</h2>
-                <p>This route is guardrail-protected before image output.</p>
-              </div>
-            </div>
-
-            <label className="field">
-              <span>Image prompt (separate input)</span>
-              <textarea
-                rows={4}
-                value={imagePrompt}
-                onChange={(event) => setImagePrompt(event.target.value)}
-                placeholder="Describe the image you want..."
-              />
-            </label>
-
-            <div className="tool-action-row">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={runImageDemo}
-                disabled={isRunning || health.includes("offline")}>
-                {isRunning ? "Generating image..." : "Run Image Prompt"}
-              </button>
-            </div>
-
-            <div
-              className={
-                imageResult.blocked
-                  ? "guardrail-box blocked"
-                  : "guardrail-box safe"
-              }>
-              <strong>
-                {imageResult.blocked
-                  ? "Image blocked"
-                  : imageResult.imageDataUrl
-                    ? "Image generated"
-                    : "Awaiting request"}
-              </strong>
-              <p>{imageResult.message}</p>
-              {imageResult.prompt ? <p>Prompt: {imageResult.prompt}</p> : null}
-              {imageResult.actionReason ? (
-                <p>{imageResult.actionReason}</p>
-              ) : null}
-            </div>
-
-            {imageResult.imageDataUrl ? (
-              <div className="image-preview-wrap">
-                <img
-                  src={imageResult.imageDataUrl}
-                  alt="Generated from image prompt"
-                  className="image-preview"
-                />
-              </div>
-            ) : null}
-          </article>
-
-          <article className="result-card panel">
-            <div className="result-header">
-              <div>
-                <h2>Agent</h2>
-                <p>
-                  This card sends prompts to your configured AWS Bedrock Agent.
-                </p>
-              </div>
-            </div>
-
-            <label className="field">
-              <span>Agent prompt</span>
-              <textarea
-                rows={4}
-                value={agentPrompt}
-                onChange={(event) => setAgentPrompt(event.target.value)}
-                placeholder="Ask the agent about a user balance or status..."
-              />
-            </label>
-
-            <div className="tool-examples">
-              <span>Selectable test prompts</span>
-              <div className="example-buttons">
-                {AGENT_TEST_PROMPTS.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    className="example-button"
-                    onClick={() => setAgentPrompt(item.prompt)}>
-                    {item.label}: {item.prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="tool-action-row">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => runAgentDemo()}
-                disabled={isRunning || health.includes("offline")}>
-                {isRunning ? "Running agent..." : "Run Agent Prompt"}
-              </button>
-            </div>
-
-            <div className="tool-box">
-              <div>
-                <span>Agent ID</span>
-                <strong>{agentResult.agentId || "Set BEDROCK_AGENT_ID"}</strong>
-              </div>
-              <div>
-                <span>Agent alias</span>
-                <strong>
-                  {agentResult.agentAliasId || "Set BEDROCK_AGENT_ALIAS_ID"}
-                </strong>
-              </div>
-              <div>
-                <span>Session</span>
-                <strong>{agentResult.sessionId}</strong>
-              </div>
-              <div>
-                <span>Response</span>
-                <strong>{agentResult.text}</strong>
-              </div>
-            </div>
-          </article>
-        </div>
-
-        <div className="setup-panel">
-          <h2>Environment variables</h2>
-          <ol>
-            <li>Set AWS_REGION for the Bedrock runtime region.</li>
-            <li>
-              Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or use an IAM
-              role.
-            </li>
-            <li>
-              This demo is locked to <code>amazon.nova-micro-v1:0</code> to keep
-              usage cost as low as possible.
-            </li>
-            <li>
-              Set BEDROCK_GUARDRAIL_ID to enable the guardrail demo. If you do
-              not set BEDROCK_GUARDRAIL_VERSION, the backend uses DRAFT.
-            </li>
-            <li>
-              Enable the Bedrock models you want to demo in the AWS console.
-            </li>
-          </ol>
+            </motion.article>
+          )}
         </div>
       </section>
     </main>

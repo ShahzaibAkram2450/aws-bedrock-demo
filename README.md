@@ -17,6 +17,7 @@ This project is built for live demos, with a UI frontend and a local backend tha
 - Frontend: React, TypeScript, Vite
 - Backend: Node.js HTTP server (`server.js`)
 - AWS SDK: `@aws-sdk/client-bedrock-runtime`, `@aws-sdk/client-bedrock-agent-runtime`
+- UI/UX: `framer-motion` (animations), `lucide-react` (icon set), expressive custom CSS theme
 
 ## Project Structure
 
@@ -157,6 +158,8 @@ npm run dev
 ```
 
 Then open the Vite URL (usually `http://localhost:5173`).
+
+If frontend starts but `/api/health` fails in browser logs, ensure the backend terminal is running `npm run server` on port `8787`.
 
 ## API Endpoints
 
