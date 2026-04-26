@@ -56,7 +56,7 @@ export function GuardrailCard({
       </div>
 
       <label className="field">
-        <span>Guardrail prompt (separate input)</span>
+        <span>Guardrail prompt</span>
         <textarea
           rows={4}
           value={guardrailPrompt}

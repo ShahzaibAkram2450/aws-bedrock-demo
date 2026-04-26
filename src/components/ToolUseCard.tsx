@@ -67,7 +67,7 @@ export function ToolUseCard({
           </label>
 
           <label className="field tool-field">
-            <span>Tool prompt (separate input)</span>
+            <span>Tool prompt</span>
             <textarea
               rows={4}
               value={toolPrompt}

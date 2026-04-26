@@ -50,7 +50,7 @@ export function ImageCard({
       </div>
 
       <label className="field">
-        <span>Image prompt (separate input)</span>
+        <span>Image prompt</span>
         <textarea
           rows={4}
           value={imagePrompt}
