@@ -360,9 +360,7 @@ async function invokeImageGeneration(prompt) {
       const payload = JSON.parse(rawBody);
       const imageBase64 =
         (Array.isArray(payload?.images) ? payload.images[0] : "") ||
-        (Array.isArray(payload?.artifacts)
-          ? payload.artifacts[0]?.base64
-          : "");
+        (Array.isArray(payload?.artifacts) ? payload.artifacts[0]?.base64 : "");
 
       if (!imageBase64) {
         throw new Error(
@@ -380,7 +378,8 @@ async function invokeImageGeneration(prompt) {
       const canTryNext =
         (name === "ResourceNotFoundException" ||
           name === "ValidationException") &&
-        modelId !== IMAGE_MODEL_ID_CANDIDATES[IMAGE_MODEL_ID_CANDIDATES.length - 1];
+        modelId !==
+          IMAGE_MODEL_ID_CANDIDATES[IMAGE_MODEL_ID_CANDIDATES.length - 1];
 
       if (canTryNext) {
         lastError = error;

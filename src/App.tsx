@@ -903,7 +903,9 @@ function App() {
 
             <div
               className={
-                imageResult.blocked ? "guardrail-box blocked" : "guardrail-box safe"
+                imageResult.blocked
+                  ? "guardrail-box blocked"
+                  : "guardrail-box safe"
               }>
               <strong>
                 {imageResult.blocked
@@ -914,7 +916,9 @@ function App() {
               </strong>
               <p>{imageResult.message}</p>
               {imageResult.prompt ? <p>Prompt: {imageResult.prompt}</p> : null}
-              {imageResult.actionReason ? <p>{imageResult.actionReason}</p> : null}
+              {imageResult.actionReason ? (
+                <p>{imageResult.actionReason}</p>
+              ) : null}
             </div>
 
             {imageResult.imageDataUrl ? (
