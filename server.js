@@ -35,14 +35,17 @@ const IMAGE_MODEL_ID_CANDIDATES = (
   .split(",")
   .map((id) => id.trim())
   .filter(Boolean);
-const ALLOWED_MODEL_IDS = new Set(["amazon.nova-micro-v1:0"]);
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const requestBuckets = new Map();
-
 const client = new BedrockRuntimeClient({ region: REGION });
 const agentClient = new BedrockAgentRuntimeClient({ region: REGION });
 
-const MODEL_LABELS = new Map([["amazon.nova-micro-v1:0", "Nova Micro"]]);
+const MODEL_LABELS = new Map([
+  ["amazon.nova-micro-v1:0", "Nova Micro"],
+  ["amazon.nova-lite-v1:0", "Nova Lite"],
+  ["amazon.nova-pro-v1:0", "Nova Pro"],
+]);
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const requestBuckets = new Map();
+
 const TOOL_DEFINITIONS = {
   getWeather: {
     toolSpec: {
@@ -96,10 +99,6 @@ const TOOL_DEFINITIONS = {
   },
 };
 const SUPPORTED_TOOLS = Object.keys(TOOL_DEFINITIONS);
-
-function isAllowedModel(modelId) {
-  return ALLOWED_MODEL_IDS.has(modelId);
-}
 
 function modelName(modelId) {
   return MODEL_LABELS.get(modelId) ?? modelId;
@@ -682,13 +681,7 @@ const server = http.createServer(async (req, res) => {
         badRequest(res, promptError);
         return;
       }
-      if (!isAllowedModel(body.modelId)) {
-        badRequest(
-          res,
-          "This demo is restricted to amazon.nova-micro-v1:0 to minimize cost.",
-        );
-        return;
-      }
+
 
       const result = await invokeText(
         body.modelId,
@@ -715,13 +708,6 @@ const server = http.createServer(async (req, res) => {
       const promptError = getPromptBudgetError(body.prompt);
       if (promptError) {
         badRequest(res, promptError);
-        return;
-      }
-      if (!isAllowedModel(body.modelAId) || !isAllowedModel(body.modelBId)) {
-        badRequest(
-          res,
-          "This demo is restricted to amazon.nova-micro-v1:0 to minimize cost.",
-        );
         return;
       }
 
@@ -900,13 +886,7 @@ const server = http.createServer(async (req, res) => {
         badRequest(res, promptError);
         return;
       }
-      if (!isAllowedModel(body.modelId)) {
-        badRequest(
-          res,
-          "This demo is restricted to amazon.nova-micro-v1:0 to minimize cost.",
-        );
-        return;
-      }
+
 
       const result = await invokeToolUse(
         body.modelId,
@@ -936,13 +916,7 @@ const server = http.createServer(async (req, res) => {
         badRequest(res, promptError);
         return;
       }
-      if (!isAllowedModel(body.modelId)) {
-        badRequest(
-          res,
-          "This demo is restricted to amazon.nova-micro-v1:0 to minimize cost.",
-        );
-        return;
-      }
+
 
       await streamTextResponse(req, res, body);
     } catch (error) {
