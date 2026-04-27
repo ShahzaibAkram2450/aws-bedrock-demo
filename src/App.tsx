@@ -231,29 +231,49 @@ function App() {
 
         if (!dataLine) continue;
 
-        const payload = JSON.parse(dataLine.slice(6)) as
-          | { type: "delta"; text: string }
-          | { type: "done"; text: string }
-          | { type: "error"; message: string };
+        try {
+          const payload = JSON.parse(dataLine.slice(6)) as
+            | { type: "delta"; text: string }
+            | { type: "done"; text: string }
+            | { type: "error"; message: string };
 
-        if (payload.type === "delta") {
-          finalText += payload.text;
-          setStreamText(finalText);
-          setLiveOutput(finalText);
-        } else if (payload.type === "done") {
-          doneSeen = true;
-          finalText = payload.text || finalText;
-          setStreamText(finalText);
-          setLiveOutput(finalText);
-        } else {
-          throw new Error(payload.message);
+          if (payload.type === "delta") {
+            finalText += payload.text;
+            setStreamText(finalText);
+            setLiveOutput(finalText);
+          } else if (payload.type === "done") {
+            doneSeen = true;
+            finalText = payload.text || finalText;
+            setStreamText(finalText);
+            setLiveOutput(finalText);
+          } else if (payload.type === "error") {
+            throw new Error(payload.message);
+          }
+        } catch (e) {
+          console.error("Error parsing stream chunk", e);
         }
       }
     }
 
-    if (!doneSeen && finalText) {
-      setStreamText(finalText);
-      setLiveOutput(finalText);
+    // Process any remaining data in the buffer
+    if (buffer.trim()) {
+      const dataLine = buffer
+        .split("\n")
+        .find((line) => line.startsWith("data: "));
+      if (dataLine) {
+        try {
+          const payload = JSON.parse(dataLine.slice(6));
+          if (payload.type === "delta") {
+            finalText += payload.text;
+          } else if (payload.type === "done") {
+            finalText = payload.text || finalText;
+          }
+          setStreamText(finalText);
+          setLiveOutput(finalText);
+        } catch (e) {
+          // Ignore parse errors for partial trailing buffer
+        }
+      }
     }
 
     setLastRun(`Streaming completed from ${selectedModel.name}.`);

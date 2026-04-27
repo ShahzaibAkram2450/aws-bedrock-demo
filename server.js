@@ -22,8 +22,8 @@ const GUARDRAIL_VERSION =
   process.env.BEDROCK_GUARDRAIL_VERSION || (GUARDRAIL_ID ? "DRAFT" : "");
 const AGENT_ID = process.env.BEDROCK_AGENT_ID || "";
 const AGENT_ALIAS_ID = process.env.BEDROCK_AGENT_ALIAS_ID || "";
-const MAX_PROMPT_CHARS = Number(process.env.BUDGET_MAX_PROMPT_CHARS || 1200);
-const MAX_OUTPUT_TOKENS = Number(process.env.BUDGET_MAX_OUTPUT_TOKENS || 220);
+const MAX_PROMPT_CHARS = Number(process.env.BUDGET_MAX_PROMPT_CHARS || 10000);
+const MAX_OUTPUT_TOKENS = Number(process.env.BUDGET_MAX_OUTPUT_TOKENS || 2000);
 const MAX_REQUESTS_PER_MINUTE = Number(
   process.env.BUDGET_MAX_REQUESTS_PER_MINUTE || 30,
 );
